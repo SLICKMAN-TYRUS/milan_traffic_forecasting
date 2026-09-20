@@ -106,8 +106,8 @@ class TransformerForecaster(nn.Module):
             norm_first=True,           # Pre-LN for training stability
         )
         self.transformer_encoder = nn.TransformerEncoder(
-            encoder_layer, num_layers=num_layers
-        )
+        encoder_layer, num_layers=num_layers, enable_nested_tensor=False
+   )
 
         self.output_head = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
