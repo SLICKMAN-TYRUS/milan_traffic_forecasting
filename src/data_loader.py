@@ -270,15 +270,17 @@ def memory_optimisation_demo(filepath: str) -> dict:
 def save_processed(matrix: pd.DataFrame, output_path: str) -> None:
     """Save pivot matrix as compressed Parquet."""
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    matrix.to_parquet(output_path, compression="snappy")
+    matrix.columns = matrix.columns.astype(str)
+    matrix.to_parquet(output_path, compression=None, engine="fastparquet")
     size_mb = os.path.getsize(output_path) / 1024 ** 2
     print(f"Saved processed matrix → {output_path}  ({size_mb:.1f} MB on disk)")
 
 
 def load_processed(path: str) -> pd.DataFrame:
     """Load previously saved Parquet matrix."""
-    df = pd.read_parquet(path)
+    df = pd.read_parquet(path, engine="fastparquet")
     df = df.astype("float32")
+    df.columns = df.columns.astype(int)
     print(f"Loaded processed matrix: {df.shape}  from {path}")
     return df
 
