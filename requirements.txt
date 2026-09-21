@@ -21,6 +21,10 @@ scikit-learn>=1.3.0
 memory-profiler>=0.61.0
 psutil>=5.9.0
 
+## Parquet file support (required for saving/loading processed matrix)
+fastparquet>=2023.0.0
+pyarrow>=14.0.0
+
 ## Notebooks
 jupyter>=1.0.0
 jupyterlab>=4.0.0

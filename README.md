@@ -8,11 +8,12 @@ mobile network traffic forecasting on the Telecom Italia Big Data Challenge data
 ```
 milan-traffic-forecasting/
 ├── data/                        # Raw .txt files go here (not committed to git)
+│   └── processed/               # Processed matrix saved here after NB01
 ├── notebooks/
-│   ├── 01_data_loading_memory.ipynb
-│   ├── 02_exploratory_analysis.ipynb
-│   ├── 03_model_selection.ipynb
-│   └── 04_forecasting_experiments.ipynb
+│   ├── 01_data_loading_memory.ipynb   # Memory-efficient loading & evidence
+│   ├── 02_exploratory_analysis.ipynb  # EDA: distribution, time series, ACF, decomp
+│   ├── 03_model_selection.ipynb       # Model justification & parameter counts
+│   └── 04_forecasting_experiments.ipynb  # Training, tuning, evaluation
 ├── src/
 │   ├── data_loader.py           # Memory-efficient data loading & aggregation
 │   ├── eda.py                   # EDA helper functions
@@ -25,9 +26,10 @@ milan-traffic-forecasting/
 │   ├── evaluate.py              # MAE, MAPE, RMSE, plots
 │   └── tuning.py                # Hyperparameter search utilities
 ├── experiments/
-│   └── experiment_log.md        # Iterative tuning decisions & results
+│   ├── experiment_log.jsonl     # Machine-readable iterative tuning log
+│   └── experiment_log.md        # Human-readable tuning decisions & results
 ├── report/
-│   └── figures/                 # Saved plots
+│   └── figures/                 # All saved plots (EDA + predictions + failure cases)
 ├── requirements.txt
 └── README.md
 ```
@@ -36,15 +38,16 @@ milan-traffic-forecasting/
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/<your-username>/milan-traffic-forecasting.git
-cd milan-traffic-forecasting
+git clone https://github.com/SLICKMAN-TYRUS/milan_traffic_forecasting.git
+cd milan_traffic_forecasting
 ```
 
 ### 2. Create and activate a virtual environment
 ```bash
 python -m venv venv
 source venv/bin/activate        # Linux/macOS
-venv\Scripts\activate           # Windows
+venv\Scripts\activate           # Windows Command Prompt
+.\venv\Scripts\Activate.ps1     # Windows PowerShell
 ```
 
 ### 3. Install dependencies
@@ -52,68 +55,106 @@ venv\Scripts\activate           # Windows
 pip install -r requirements.txt
 ```
 
+> **Note:** `fastparquet` and `pyarrow` are both required for saving and loading
+> the processed traffic matrix. Both are listed in `requirements.txt`.
+
 ### 4. Add the data
 Download the Telecom Italia Big Data Challenge dataset from:
 - https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/EGZHFV
 
-Place all daily `.txt` files in the `data/` directory. Files should be named in the pattern:
-`sms-call-internet-mi-YYYY-MM-DD.txt`
+Place all 62 daily `.txt` files directly in the `data/` directory. Files must follow
+the naming pattern: `sms-call-internet-mi-YYYY-MM-DD.txt`
+
+If the data files are stored elsewhere on your machine, update `DATA_DIR` in
+Notebook 01 to point to their location. Example:
+```python
+DATA_DIR = r'C:\Users\YourName\milan_data'   # Windows absolute path
+```
 
 ## Running the Project
 
-### Option A: Notebooks (recommended for exploration)
-Launch Jupyter and run notebooks in order (01 → 04):
+Run notebooks **in order** (01 → 02 → 03 → 04). Each notebook depends on outputs
+from the previous one.
+
 ```bash
 jupyter lab
+# or open notebooks directly in VS Code
 ```
 
-### Option B: Scripts (recommended for full pipeline)
-```bash
-# Step 1: Load and preprocess all data
-python src/data_loader.py --data_dir data/ --output_dir data/processed/
+### Notebook 01 — Data Loading & Memory Management
+Loads all 62 raw files, aggregates internet traffic per cell per timestamp,
+and saves `data/processed/traffic_matrix.parquet` (~343 MB).
+**Runtime: 20–60 minutes depending on hardware.**
 
-# Step 2: Run EDA and save figures
-python src/eda.py --processed_dir data/processed/ --output_dir report/figures/
+> **Important note on column types:** After loading the processed matrix,
+> column names (square IDs) must be cast to integers:
+> ```python
+> matrix.columns = matrix.columns.astype(int)
+> ```
+> This is handled automatically in all notebooks but is required if you load
+> the Parquet file manually.
 
-# Step 3: Train all models and run experiments
-python src/train.py --processed_dir data/processed/ --output_dir experiments/
+### Notebook 02 — Exploratory Data Analysis
+Generates all EDA figures saved to `report/figures/`. Identifies the top-3
+geographic areas and saves `data/processed/top3_areas.json`.
 
-# Step 4: Evaluate and generate result tables + plots
-python src/evaluate.py --experiments_dir experiments/ --output_dir report/figures/
-```
+### Notebook 03 — Model Selection
+Documents model architecture justification and computes parameter counts.
+No data required — runs in under 1 minute.
+
+### Notebook 04 — Forecasting Experiments
+Runs all hyperparameter tuning experiments (9 total) and final evaluations
+(9 models × 3 areas). **Runtime: 4–8 hours on CPU.**
+All results saved to `experiments/` as JSON files.
 
 ## Data Format
 
-Each raw `.txt` file is tab-separated with **no header**, containing columns:
+Each raw `.txt` file is tab-separated with **no header**, containing 8 columns:
+
 | Index | Name          | Description                              |
 |-------|---------------|------------------------------------------|
 | 0     | square_id     | Geographic cell ID (1–10,000)            |
 | 1     | time_interval | Unix timestamp in milliseconds           |
 | 2     | country_code  | Country code of the activity             |
-| 3     | sms_in        | Incoming SMS activity (normalized)       |
-| 4     | sms_out       | Outgoing SMS activity (normalized)       |
-| 5     | call_in       | Incoming call activity (normalized)      |
-| 6     | call_out      | Outgoing call activity (normalized)      |
-| 7     | internet      | Internet traffic activity (normalized)   |
+| 3     | sms_in        | Incoming SMS activity                    |
+| 4     | sms_out       | Outgoing SMS activity                    |
+| 5     | call_in       | Incoming call activity                   |
+| 6     | call_out      | Outgoing call activity                   |
+| 7     | internet      | **Internet traffic activity** ← target   |
 
-The pipeline aggregates internet traffic per `(square_id, time_interval)` across all country codes,
-producing a clean matrix of shape `(T, 10000)` where T is the number of 10-minute intervals.
+The pipeline aggregates internet traffic per `(square_id, time_interval)` across
+all country codes, producing a matrix of shape `(8928, 10000)` — 62 days × 144
+10-minute intervals per day, across 10,000 geographic cells.
 
 ## Models
 
-| Model       | Architecture          | Key Strength                            |
-|-------------|----------------------|-----------------------------------------|
-| LSTM        | Stacked LSTM (2-layer) | Captures sequential dependencies        |
-| TCN         | Dilated Causal Conv   | Long receptive field, parallelizable   |
-| Transformer | Multi-head Attention  | Non-local pattern capture via attention |
+| Model       | Architecture            | Params  | Key Strength                          |
+|-------------|------------------------|---------|---------------------------------------|
+| LSTM        | Stacked LSTM (2-layer)  | 52,545  | Gated sequential hidden state         |
+| TCN         | Dilated Causal Conv     | 144,897 | Long receptive field, parallelisable  |
+| Transformer | Multi-head Attention    | 406,017 | Global pairwise dependency modelling  |
 
 ## Hardware & Reproducibility
 
-All experiments were run on [your hardware here]. Random seeds are fixed to 42 across
-PyTorch, NumPy, and Python for reproducibility.
+All experiments were run on **Windows 11 (Intel CPU, PyTorch 2.14.0, CPU-only)**.
+Random seeds are fixed to **42** across PyTorch, NumPy, and Python for full
+reproducibility. Expected total training time on similar hardware: ~12–16 hours.
+
+## Key Results (December 16–22, 2013 test period)
+
+| Model       | Square 5161 MAE | Square 5059 MAE | Square 5259 MAE |
+|-------------|----------------|----------------|----------------|
+| LSTM        | 85.15          | **71.25**      | **67.86**      |
+| TCN         | **80.87**      | 74.70          | 69.44          |
+| Transformer | 99.80          | 101.95         | 76.76          |
+
+TCN achieves the best performance on the highest-traffic area (Square 5161).
+LSTM wins on Squares 5059 and 5259. Transformer consistently underperforms both.
 
 ## References
 
 - Barlacchi et al. (2015). A multi-source dataset of urban life in the city of Milan.
   *Scientific Data*, 2, 150055. https://doi.org/10.1038/sdata.2015.55
 - Dataset: https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/EGZHFV
+- Bai et al. (2018). An empirical evaluation of generic convolutional and recurrent
+  networks for sequence modeling. arXiv:1803.01271.
